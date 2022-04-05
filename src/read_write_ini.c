@@ -7,7 +7,7 @@
 
 #include "read_write_ini.h"
 
-uint8_t exist_ini(char* file) {
+uint8_t ini_exist(char* file) {
     uint8_t ret = 0;
     FILE *arq = fopen(file, "r");
     ret = (arq != NULL);
@@ -15,7 +15,7 @@ uint8_t exist_ini(char* file) {
     return ret;
 }
 
-uint8_t read_ini(char* file, char* section, char* key, char* value) {
+uint8_t ini_read(char* file, char* section, char* key, char* value) {
     FILE *arq;
     uint8_t sec_flag = 0;
     uint8_t key_flag = 0;
@@ -78,14 +78,14 @@ uint8_t read_ini(char* file, char* section, char* key, char* value) {
     else return INI_NOTHING_FOUND;
 }
 
-uint8_t write_ini(char* file, char* section, char* key, char* value) {
+uint8_t ini_write(char* file, char* section, char* key, char* value) {
     FILE *arq;
     uint8_t flag, sec_flag = 0, key_flag = 0;
     int n, pos = 0, pos_value = 0, i_aux, len;
     int8_t c, *data;
     char aux[64];
     //avaliar
-    flag = read_ini(file, section, key, aux);
+    flag = ini_read(file, section, key, aux);
     if (flag == INI_FILE_NOT_FOUND) {
         arq = fopen(file, "w");
         if (arq == NULL) return INI_ERROR;
@@ -231,13 +231,61 @@ uint8_t write_ini(char* file, char* section, char* key, char* value) {
     return INI_OK;
 }
 
-uint32_t count_sections_ini(char* file) {
+uint32_t ini_count_sections(char* file) {
     int count;
-    read_sections_ini(file, NULL, &count);
+    ini_read_sections(file, NULL, &count);
     return count;
 }
 
-uint8_t read_sections_ini(char* file, char **sections, uint32_t* count) {
+uint8_t ini_read_section_name(char* file, uint32_t index, char *section_name) {
+    FILE *arq;
+    int i_aux;
+
+    int count = 0;
+
+    arq = fopen(file, "r");
+    if (arq == NULL) return INI_FILE_NOT_FOUND;
+    //varrer caracteres do arquivo
+    for (int8_t c = getc(arq); c != EOF; c = getc(arq)) {
+        //ignorar comentários
+        while (c == ';') {
+            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+            c = getc(arq); //lê primeiro caractere da próxima linha
+        }
+        //procurar seção
+        if (c == '[') {
+            //ignora espaços iniciais
+            do c = getc(arq); while (c == ' ');
+            //ler nome
+            for (i_aux = 0; c != EOF && c != 0x0A && c != ' ' && c != ']'; c = getc(arq)) {
+                if (section_name != NULL) {
+                    section_name[i_aux++] = c;
+                }
+            }
+            if (section_name != NULL) {
+                section_name[i_aux++] = '\0';
+            }
+            //ignora espaços finais, se houver
+            if (c != ']') {
+                do c = getc(arq); while (c == ' ');
+            }
+            //seção encontrada
+            if (c == ']') {
+                if (count == index) {
+                    return INI_OK;
+                }
+                count++; //contar seções
+                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+            }
+        }
+    }
+    fclose(arq);
+    //retorno
+    section_name[0] = '\0';
+    return INI_ERROR;
+}
+
+uint8_t ini_read_sections(char* file, char **sections, uint32_t* count) {
     FILE *arq;
     int i_aux;
 
@@ -281,13 +329,77 @@ uint8_t read_sections_ini(char* file, char **sections, uint32_t* count) {
     return INI_OK;
 }
 
-uint32_t count_keys_ini(char* file, char* section) {
+uint32_t ini_count_keys(char* file, char* section) {
     int count;
-    read_keys_ini(file, section, NULL, &count);
+    ini_read_keys(file, section, NULL, &count);
     return count;
 }
 
-uint8_t read_keys_ini(char* file, char* section, char** keys, uint32_t* count) {
+uint8_t ini_read_key_name(char* file, char* section, uint32_t index, char *key_name) {
+    FILE *arq;
+    uint8_t sec_flag = 0;
+    int i_aux, i_result = 0, len;
+    arq = fopen(file, "r");
+    if (arq == NULL) return INI_FILE_NOT_FOUND;
+    //zerar contagem
+    int count = 0;
+    //varrer caracteres do arquivo
+    for (int8_t c = getc(arq); c != EOF; c = getc(arq)) {
+        //ignorar comentários
+        while (c == ';') {
+            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+            c = getc(arq); //lê primeiro caractere da próxima linha
+        }
+        //procurar seção
+        if (c == '[') {
+            if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
+            do c = getc(arq); while (c == ' '); //ignora espaços
+            for (i_aux = 0, len = strlen(section); c != EOF && i_aux < len;) {//lê o nome da seção
+                if (c != section[i_aux++]) {
+                    for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+                    break;
+                }
+                do c = getc(arq); while (c == ' '); //ignora espaços
+            }
+            //seção encontrada
+            if (c == ']') {
+                sec_flag = 1; //flag de seção encontrada
+                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+            }
+        }
+        //procurar chave
+        if (sec_flag) {
+            //ignora espaços iniciais
+            while (c == ' ' || c == 0x0A) c = getc(arq);
+            //se for a próxima seção
+            if (c == '[') break;
+            //zerar ponteiro de nome da chave
+            i_aux = 0;
+            //ler nome da chave
+            for (; c != ' ' && c != 0x0A && c != EOF; c = getc(arq)) {
+                if (key_name != NULL) {
+                    key_name[i_aux++] = c;
+                }
+            }
+            if (key_name != NULL) {
+                key_name[i_aux++] = '\0';
+            }
+            //incrementar contagem de chave
+            if (count == index) {
+                return INI_OK;
+            }
+            count++;
+            //ignora resto da linha
+            while (c != 0x0A && c != EOF) c = getc(arq);
+        }
+    }
+    fclose(arq);
+    key_name[0] = '\0';
+    //retorno
+    return INI_ERROR;
+}
+
+uint8_t ini_read_keys(char* file, char* section, char** keys, uint32_t* count) {
     FILE *arq;
     uint8_t sec_flag = 0;
     int i_aux, i_result = 0, len;

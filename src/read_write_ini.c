@@ -232,8 +232,36 @@ uint8_t ini_write(char* file, char* section, char* key, char* value) {
 }
 
 uint32_t ini_count_sections(char* file) {
-    int count;
-    ini_read_sections(file, NULL, &count);
+    FILE *arq;
+    uint32_t count = 0;
+    arq = fopen(file, "r");
+    if (arq == NULL) return INI_FILE_NOT_FOUND;
+    //varrer caracteres do arquivo
+    for (int8_t c = getc(arq); c != EOF; c = getc(arq)) {
+        //ignorar comentários
+        while (c == ';') {
+            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+            c = getc(arq); //lê primeiro caractere da próxima linha
+        }
+        //procurar seção
+        if (c == '[') {
+            //ignora espaços iniciais
+            do c = getc(arq); while (c == ' ');
+            //ler nome
+            for (; c != EOF && c != 0x0A && c != ' ' && c != ']'; c = getc(arq));
+            //ignora espaços finais, se houver
+            if (c != ']') {
+                do c = getc(arq); while (c == ' ');
+            }
+            //seção encontrada
+            if (c == ']') {
+                count++; //contar seções
+                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+            }
+        }
+    }
+    fclose(arq);
+    //retorno
     return count;
 }
 
@@ -285,14 +313,14 @@ uint8_t ini_read_section_name(char* file, uint32_t index, char *section_name) {
     return INI_ERROR;
 }
 
-uint8_t ini_read_sections(char* file, char **sections, uint32_t* count) {
+uint32_t ini_count_keys(char* file, char* section) {
     FILE *arq;
-    int i_aux;
-
-    (*count) = 0;
-
+    uint8_t sec_flag = 0;
+    int i_aux, len;
     arq = fopen(file, "r");
     if (arq == NULL) return INI_FILE_NOT_FOUND;
+    //zerar contagem
+    uint32_t count = 0;
     //varrer caracteres do arquivo
     for (int8_t c = getc(arq); c != EOF; c = getc(arq)) {
         //ignorar comentários
@@ -302,43 +330,46 @@ uint8_t ini_read_sections(char* file, char **sections, uint32_t* count) {
         }
         //procurar seção
         if (c == '[') {
-            //ignora espaços iniciais
-            do c = getc(arq); while (c == ' ');
-            //ler nome
-            for (i_aux = 0; c != EOF && c != 0x0A && c != ' ' && c != ']'; c = getc(arq)) {
-                if (sections != NULL) {
-                    sections[(*count)][i_aux++] = c;
+            if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
+            do c = getc(arq); while (c == ' '); //ignora espaços
+            for (i_aux = 0, len = strlen(section); c != EOF && i_aux < len;) {//lê o nome da seção
+                if (c != section[i_aux++]) {
+                    for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+                    break;
                 }
-            }
-            if (sections != NULL) {
-                sections[(*count)][i_aux++] = '\0';
-            }
-            //ignora espaços finais, se houver
-            if (c != ']') {
-                do c = getc(arq); while (c == ' ');
+                do c = getc(arq); while (c == ' '); //ignora espaços
             }
             //seção encontrada
             if (c == ']') {
-                (*count)++; //contar seções
+                sec_flag = 1; //flag de seção encontrada
                 for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
             }
+        }
+        //procurar chave
+        if (sec_flag) {
+            //ignora espaços iniciais
+            while (c == ' ' || c == 0x0A) c = getc(arq);
+            //se for a próxima seção
+            if (c == '[') break;
+            //zerar ponteiro de nome da chave
+            i_aux = 0;
+            //ler nome da chave
+            for (; c != ' ' && c != 0x0A && c != EOF; c = getc(arq));
+            //incrementar contagem de chave
+            count++;
+            //ignora resto da linha
+            while (c != 0x0A && c != EOF) c = getc(arq);
         }
     }
     fclose(arq);
     //retorno
-    return INI_OK;
-}
-
-uint32_t ini_count_keys(char* file, char* section) {
-    int count;
-    ini_read_keys(file, section, NULL, &count);
     return count;
 }
 
 uint8_t ini_read_key_name(char* file, char* section, uint32_t index, char *key_name) {
     FILE *arq;
     uint8_t sec_flag = 0;
-    int i_aux, i_result = 0, len;
+    int i_aux, len;
     arq = fopen(file, "r");
     if (arq == NULL) return INI_FILE_NOT_FOUND;
     //zerar contagem
@@ -376,7 +407,7 @@ uint8_t ini_read_key_name(char* file, char* section, uint32_t index, char *key_n
             //zerar ponteiro de nome da chave
             i_aux = 0;
             //ler nome da chave
-            for (; c != ' ' && c != 0x0A && c != EOF; c = getc(arq)) {
+            for (; c != ' ' && c != '=' && c != 0x0A && c != EOF; c = getc(arq)) {
                 if (key_name != NULL) {
                     key_name[i_aux++] = c;
                 }
@@ -397,66 +428,4 @@ uint8_t ini_read_key_name(char* file, char* section, uint32_t index, char *key_n
     key_name[0] = '\0';
     //retorno
     return INI_ERROR;
-}
-
-uint8_t ini_read_keys(char* file, char* section, char** keys, uint32_t* count) {
-    FILE *arq;
-    uint8_t sec_flag = 0;
-    int i_aux, i_result = 0, len;
-    arq = fopen(file, "r");
-    if (arq == NULL) return INI_FILE_NOT_FOUND;
-    //zerar contagem
-    (*count) = 0;
-    //varrer caracteres do arquivo
-    for (int8_t c = getc(arq); c != EOF; c = getc(arq)) {
-        //ignorar comentários
-        while (c == ';') {
-            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            c = getc(arq); //lê primeiro caractere da próxima linha
-        }
-        //procurar seção
-        if (c == '[') {
-            if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
-            do c = getc(arq); while (c == ' '); //ignora espaços
-            for (i_aux = 0, len = strlen(section); c != EOF && i_aux < len;) {//lê o nome da seção
-                if (c != section[i_aux++]) {
-                    for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-                    break;
-                }
-                do c = getc(arq); while (c == ' '); //ignora espaços
-            }
-            //seção encontrada
-            if (c == ']') {
-                sec_flag = 1; //flag de seção encontrada
-                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            }
-        }
-        //procurar chave
-        if (sec_flag) {
-            //ignora espaços iniciais
-            while (c == ' ' || c == 0x0A) c = getc(arq);
-            //se for a próxima seção
-            if (c == '[') break;
-            //zerar ponteiro de nome da chave
-            i_aux = 0;
-            //ler nome da chave
-            for (; c != ' ' && c != 0x0A && c != EOF; c = getc(arq)) {
-                if (keys != NULL) {
-                    keys[(*count)][i_aux++] = c;
-                }
-            }
-            if (keys != NULL) {
-                keys[(*count)][i_aux++] = '\0';
-            }
-            //incrementar contagem de chave
-            (*count)++;
-            //ignora resto da linha
-            while (c != 0x0A && c != EOF) c = getc(arq);
-        }
-        //if (sec_flag) break;
-    }
-    fclose(arq);
-    //retorno
-    if (sec_flag) return INI_OK;
-    else return INI_ERROR;
 }

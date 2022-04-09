@@ -11,13 +11,13 @@
 #include "read_write_ini.h"
 
 void create_example_ini_file(char *file_name) {
-    ini_write(file_name, "sec1", "ch1", "001");
-    ini_write(file_name, "sec1", "ch2", "002");
-    ini_write(file_name, "sec1", "ch3", "003");
-    ini_write(file_name, "sec1", "ch4", "004");
-    ini_write(file_name, "sec2", "cha", "a01");
-    ini_write(file_name, "sec2", "chb", "a02");
-    ini_write(file_name, "sec3", "ch", "0.05");
+    ini_write_value(file_name, "sec1", "ch1", "001");
+    ini_write_value(file_name, "sec1", "ch2", "002");
+    ini_write_value(file_name, "sec1", "ch3", "003");
+    ini_write_value(file_name, "sec1", "ch4", "004");
+    ini_write_value(file_name, "sec2", "cha", "a01");
+    ini_write_value(file_name, "sec2", "chb", "a02");
+    ini_write_value(file_name, "sec3", "ch", "0.05");
 }
 
 void read_example_ini_file(char *file_name) {
@@ -32,7 +32,7 @@ void read_example_ini_file(char *file_name) {
         n_key = ini_count_keys(file_name, sec);
         for (j = 0; j < n_key; j++) {
             ini_read_key_name(file_name, sec, j, key);
-            ini_read(file_name, sec, key, val);
+            ini_read_value(file_name, sec, key, val);
             printf("   %s = %s\n", key, val);
         }
     }

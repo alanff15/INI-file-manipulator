@@ -1,6 +1,6 @@
 /* 
  * File:   read_write_ini.h
- * Author: alan.andrade
+ * Author: Alan
  *
  * Created on August 14, 2019, 2:58 PM
  */
@@ -51,20 +51,6 @@ extern "C" {
     int ini_count_keys(char* file, char* section);
 
     /*
-     * EN: Guiven file, section and key names reades value
-     * 
-     * PT: Dados os nomes de arquivo, seção e chave lê o valor
-     */
-    ini_status_t ini_read(char* file, char* section, char* key, char* value);
-
-    /*
-     * EN: Edits or creates file, section, key and value
-     * 
-     * PT: Edita ou cria arquivo, seção, chave e valor
-     */
-    ini_status_t ini_write(char* file, char* section, char* key, char* value);
-
-    /*
      * EN: Reads the index-th section name
      * 
      * PT: Lê o indice-ésimo nome de seção
@@ -77,6 +63,20 @@ extern "C" {
      * PT: Lê o indice-ésimo nome da chave dado o nome da seção
      */
     ini_status_t ini_read_key_name(char* file, char* section, int index, char *key_name);
+
+    /*
+     * EN: Guiven file, section and key names reades value
+     * 
+     * PT: Dados os nomes de arquivo, seção e chave lê o valor
+     */
+    ini_status_t ini_read_value(char* file, char* section, char* key, char* value);
+
+    /*
+     * EN: Edits or creates file, section, key and value
+     * 
+     * PT: Edita ou cria arquivo, seção, chave e valor
+     */
+    ini_status_t ini_write_value(char* file, char* section, char* key, char* value);
 
 #ifdef __cplusplus
 }

@@ -14,40 +14,69 @@ extern "C" {
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 
-    //retornos
-
-    enum {
+    /*
+     * EN: Functions retun status
+     * 
+     * PT: Status de retorno das funções
+     */
+    typedef enum {
         INI_OK,
         INI_ERROR,
         INI_FILE_NOT_FOUND,
         INI_NOTHING_FOUND,
         INI_SEC_FOUND,
-    };
+    } ini_status_t;
 
-    /*arquivo*/
-    //checar existência do arquivo
-    uint8_t ini_exist(char* file);
+    /*
+     * EN: Returns 1 if file exists or 0 otherwise
+     * 
+     * PT: Retorna 1 se o arquivo existir ou 0 caso contrário
+     */
+    int ini_exist(char* file);
 
-    /*valores*/
-    //ler ini
-    uint8_t ini_read(char* file, char* section, char* key, char* value);
-    //escrever ini
-    uint8_t ini_write(char* file, char* section, char* key, char* value);
+    /*
+     * EN: Counts the number of sections
+     * 
+     * PT: Conta o número se seções
+     */
+    int ini_count_sections(char* file);
 
-    /*seções*/
-    //retorna quantidade de seções
-    uint32_t ini_count_sections(char* file);
-    //retorna nome da seção pelo índice
-    uint8_t ini_read_section_name(char* file, uint32_t index, char *section_name);
+    /*
+     * EN: Counts the number of keys given the section name
+     * 
+     * PT: Conta a quantidade de chaves dado o nome da seção
+     */
+    int ini_count_keys(char* file, char* section);
 
-    /*chaves*/
-    //retorna quantidade de chaves
-    uint32_t ini_count_keys(char* file, char* section);
-    //retorna nome da chave pelo índice
-    uint8_t ini_read_key_name(char* file, char* section, uint32_t index, char *key_name);
+    /*
+     * EN: Guiven file, section and key names reades value
+     * 
+     * PT: Dados os nomes de arquivo, seção e chave lê o valor
+     */
+    ini_status_t ini_read(char* file, char* section, char* key, char* value);
+
+    /*
+     * EN: Edits or creates file, section, key and value
+     * 
+     * PT: Edita ou cria arquivo, seção, chave e valor
+     */
+    ini_status_t ini_write(char* file, char* section, char* key, char* value);
+
+    /*
+     * EN: Reads the index-th section name
+     * 
+     * PT: Lê o indice-ésimo nome de seção
+     */
+    ini_status_t ini_read_section_name(char* file, int index, char *section_name);
+
+    /*
+     * EN: Reads the index-th key name in the given the section name
+     * 
+     * PT: Lê o indice-ésimo nome da chave dado o nome da seção
+     */
+    ini_status_t ini_read_key_name(char* file, char* section, int index, char *key_name);
 
 #ifdef __cplusplus
 }

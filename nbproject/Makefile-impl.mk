@@ -24,7 +24,7 @@ CLEAN_SUBPROJECTS=${CLEAN_SUBPROJECTS_${SUBPROJECTS}}
 
 
 # Project Name
-PROJECTNAME=arquivo_ini
+PROJECTNAME=INI-file-manipulator
 
 # Active Configuration
 DEFAULTCONF=Debug

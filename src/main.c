@@ -7,7 +7,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
 #include "read_write_ini.h"
 
 void create_example_ini_file(char *file_name) {
@@ -23,12 +22,12 @@ void create_example_ini_file(char *file_name) {
 void read_example_ini_file(char *file_name) {
     char sec[64], key[64], val[64];
     int n_sec, n_key;
-    //varrer seções
+    //sweep sections
     n_sec = ini_count_sections(file_name);
     for (int j, i = 0; i < n_sec; i++) {
         ini_read_section_name(file_name, i, sec);
         printf("  [%s]\n", sec);
-        //varrer chaves
+        //sweep keys
         n_key = ini_count_keys(file_name, sec);
         for (j = 0; j < n_key; j++) {
             ini_read_key_name(file_name, sec, j, key);
@@ -39,18 +38,15 @@ void read_example_ini_file(char *file_name) {
 }
 
 int main(int argc, char** argv) {
-
     char *fname = "teste.ini";
-
-    //criar arquivo
+    //criate file
     if (!ini_exist(fname)) {
         create_example_ini_file(fname);
         printf("created file: \"%s\"\n\n", fname);
     }
-    //abrir arquivo
+    //open file
     printf("read: %s\n", fname);
     read_example_ini_file(fname);
-
     //pause
     getchar();
     return (EXIT_SUCCESS);

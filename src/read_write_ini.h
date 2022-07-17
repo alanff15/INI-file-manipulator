@@ -25,8 +25,8 @@ extern "C" {
         INI_OK,
         INI_ERROR,
         INI_FILE_NOT_FOUND,
-        INI_NOTHING_FOUND,
-        INI_SEC_FOUND,
+        INI_SEC_NOT_FOUND,
+        INI_KEY_NOT_FOUND,
     } ini_status_t;
 
     /*

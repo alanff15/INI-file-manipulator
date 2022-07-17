@@ -7,425 +7,426 @@
 
 #include "read_write_ini.h"
 
+#define DEFAULT_STR_LENGTH 256
+
+#define CHAR_COMMENT    ';'
+#define CHAR_SEC_OPEN   '['
+#define CHAR_SEC_CLOSE  ']'
+#define CHAR_SET_VALUE  '='
+#define CHAR_END_LINE   '\n'
+#define CHAR_RETURN     '\r'
+
+typedef enum {
+    ST_NOT_FOUND = 0,
+    ST_FINISH = 1,
+    ST_SEARCH,
+    ST_READING,
+} state_t;
+
+////////////////////////////////////////////////////////////////////////////////
+
+long readFileToString(char *file, char **str) {
+    long size;
+    //open file
+    FILE *fp = fopen(file, "rb");
+    if (fp == NULL) {
+        (*str) = NULL;
+        return 0;
+    }
+    //read size and allocate memory
+    fseek(fp, 0L, SEEK_END);
+    size = ftell(fp) + 1L;
+    (*str) = malloc(size);
+    //read file
+    fseek(fp, 0L, SEEK_SET);
+    fread((*str), size, 1, fp);
+    (*str)[size - 1] = EOF;
+    //close file
+    fclose(fp);
+    return size;
+}
+
+char getNextValidChar(char *str, long *index) {
+    int newline;
+    char c;
+    //detect new line
+    if ((*index) == 0 || str[(*index) - 1] == CHAR_END_LINE || str[(*index) - 1] == CHAR_RETURN) {
+        newline = 1;
+    } else {
+        newline = 0;
+    }
+    //read next char
+    c = str[(*index)++];
+    //look for comment mark if it is the beginning of a line
+    if (newline) {
+        while (c == CHAR_COMMENT) {
+            //ignore rest of line
+            do {
+                c = str[(*index)++];
+            } while (c != EOF && c != CHAR_END_LINE && c != CHAR_RETURN);
+        }
+    }
+    //return value
+    return c;
+}
+
+int matchStr(char *str, long start, long end, char *compStr) {
+    int ret;
+    long compStart = 0;
+    long compEnd = strlen(compStr);
+    //ignore white spaces
+    while (str[start] == ' ') start++;
+    while (str[end - 1] == ' ') end--;
+    while (compStr[compStart] == ' ') compStart++;
+    while (compStr[compEnd - 1] == ' ') compEnd--;
+    //compare chars
+    if ((end - start) != (compEnd - compStart)) {
+        ret = 0;
+    } else {
+        ret = 1;
+        for (long i = start, j = compStart; i < end; i++, j++) {
+            if (str[i] != compStr[j]) {
+                ret = 0;
+                break;
+            }
+        }
+    }
+    return ret;
+}
+
+void copyStr(char *str, long start, long end, char *dstStr) {
+    for (long i = 0, j = start; j < end; j++) {
+        dstStr[i++] = str[j];
+        dstStr[i] = '\0';
+    }
+}
+
+void writeCharToFile(FILE** fp, char c) {
+    fwrite(&c, 1, 1, (*fp));
+}
+
+void writeStringToFile(FILE** fp, char *str, long start, long end) {
+    for (long i = start; i < end; i++) {
+        writeCharToFile(fp, str[i]);
+    }
+}
+
+int findNextSection(char *str, long index, long *start, long *end) {
+    state_t state = ST_SEARCH;
+    char c;
+    (*start) = (*end) = index;
+    for (; state != ST_FINISH && state != ST_NOT_FOUND;) {
+        c = getNextValidChar(str, &index);
+        switch (state) {
+            case ST_FINISH:
+            case ST_NOT_FOUND:
+            case ST_SEARCH:
+                if (c == CHAR_SEC_OPEN) {
+                    state = ST_READING;
+                    (*start) = index;
+                }
+                break;
+            case ST_READING:
+                if (c != CHAR_SEC_CLOSE) {
+                } else {
+                    state = ST_FINISH;
+                    (*end) = index - 1L;
+                }
+                break;
+        }
+        if (c == EOF) {
+            state = ST_NOT_FOUND;
+        }
+    }
+    return state;
+}
+
+int findNextKey(char *str, long index, long *start, long *end) {
+    state_t state = ST_SEARCH;
+    char c;
+    (*start) = (*end) = index;
+    for (; state != ST_FINISH && state != ST_NOT_FOUND;) {
+        c = getNextValidChar(str, &index);
+        switch (state) {
+            case ST_FINISH:
+            case ST_NOT_FOUND:
+            case ST_SEARCH:
+                state = ST_READING;
+                if (c == CHAR_SET_VALUE) {
+                    break;
+                }
+            case ST_READING:
+                if (c == CHAR_END_LINE || c == CHAR_RETURN) {
+                    (*start) = index;
+                } else if (c == CHAR_SET_VALUE || c == CHAR_SEC_OPEN) {
+                    state = ST_FINISH;
+                    (*end) = index - 1L;
+                }
+                break;
+        }
+        if (c == EOF || c == CHAR_SEC_OPEN) {
+            state = ST_NOT_FOUND;
+        }
+    }
+    return state;
+}
+
+int findNextValue(char *str, long index, long *start, long *end) {
+    state_t state = ST_SEARCH;
+    char c;
+    (*start) = (*end) = index;
+    for (; state != ST_FINISH && state != ST_NOT_FOUND;) {
+        c = getNextValidChar(str, &index);
+        switch (state) {
+            case ST_FINISH:
+            case ST_NOT_FOUND:
+            case ST_SEARCH:
+                state = ST_READING;
+                (*start) = index;
+            case ST_READING:
+                if (c == EOF || c == CHAR_END_LINE || c == CHAR_RETURN) {
+                    state = ST_FINISH;
+                    (*end) = index - 1L;
+                }
+                break;
+        }
+        if (c == EOF) {
+            state = ST_FINISH;
+        }
+    }
+    return state;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 int ini_exist(char* file) {
-    int ret = 0;
-    FILE *arq = fopen(file, "r");
-    ret = (arq != NULL);
-    fclose(arq);
+    int ret;
+    FILE *fp = fopen(file, "rb");
+    if (fp == NULL) {
+        ret = 0;
+    } else {
+        fclose(fp);
+        ret = 1;
+    }
     return ret;
 }
 
 int ini_count_sections(char* file) {
-    FILE *arq;
     int count = 0;
-    arq = fopen(file, "r");
-    if (arq == NULL) return INI_FILE_NOT_FOUND;
-    //varrer caracteres do arquivo
-    for (char c = getc(arq); c != EOF; c = getc(arq)) {
-        //ignorar comentários
-        while (c == ';') {
-            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            c = getc(arq); //lê primeiro caractere da próxima linha
+    char *str;
+    long n, start, end = 0;
+    //read file
+    n = readFileToString(file, &str);
+    if (n > 0) {
+        //count
+        while (findNextSection(str, end, &start, &end)) {
+            count++;
         }
-        //procurar seção
-        if (c == '[') {
-            //ignora espaços iniciais
-            do c = getc(arq); while (c == ' ');
-            //ler nome
-            for (; c != EOF && c != 0x0A && c != ' ' && c != ']'; c = getc(arq));
-            //ignora espaços finais, se houver
-            if (c != ']') {
-                do c = getc(arq); while (c == ' ');
-            }
-            //seção encontrada
-            if (c == ']') {
-                count++; //contar seções
-                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            }
-        }
+        free(str);
     }
-    fclose(arq);
-    //retorno
     return count;
 }
 
 int ini_count_keys(char* file, char* section) {
-    FILE *arq;
-    int sec_flag = 0;
-    int i_aux, len;
-    arq = fopen(file, "r");
-    if (arq == NULL) return INI_FILE_NOT_FOUND;
-    //zerar contagem
     int count = 0;
-    //varrer caracteres do arquivo
-    for (char c = getc(arq); c != EOF; c = getc(arq)) {
-        //ignorar comentários
-        while (c == ';') {
-            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            c = getc(arq); //lê primeiro caractere da próxima linha
-        }
-        //procurar seção
-        if (c == '[') {
-            if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
-            do c = getc(arq); while (c == ' '); //ignora espaços
-            for (i_aux = 0, len = strlen(section); c != EOF && i_aux < len;) {//lê o nome da seção
-                if (c != section[i_aux++]) {
-                    for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-                    break;
+    char *str;
+    long n, start, end = 0;
+    //read file
+    n = readFileToString(file, &str);
+    if (n > 0) {
+        //search section
+        while (findNextSection(str, end, &start, &end)) {
+            if (matchStr(str, start, end, section)) {
+                //count
+                while (findNextKey(str, end, &start, &end)) {
+                    count++;
                 }
-                do c = getc(arq); while (c == ' '); //ignora espaços
-            }
-            //seção encontrada
-            if (c == ']') {
-                sec_flag = 1; //flag de seção encontrada
-                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+                break;
             }
         }
-        //procurar chave
-        if (sec_flag) {
-            //ignora espaços iniciais
-            while (c == ' ' || c == 0x0A) c = getc(arq);
-            //se for a próxima seção
-            if (c == '[') break;
-            //zerar ponteiro de nome da chave
-            i_aux = 0;
-            //ler nome da chave
-            for (; c != ' ' && c != 0x0A && c != EOF; c = getc(arq));
-            //incrementar contagem de chave
-            count++;
-            //ignora resto da linha
-            while (c != 0x0A && c != EOF) c = getc(arq);
-        }
+        free(str);
     }
-    fclose(arq);
-    //retorno
     return count;
 }
 
 ini_status_t ini_read_section_name(char* file, int index, char *section_name) {
-    FILE *arq;
-    int i_aux;
-
+    ini_status_t ret = INI_SEC_NOT_FOUND;
     int count = 0;
-
-    arq = fopen(file, "r");
-    if (arq == NULL) return INI_FILE_NOT_FOUND;
-    //varrer caracteres do arquivo
-    for (char c = getc(arq); c != EOF; c = getc(arq)) {
-        //ignorar comentários
-        while (c == ';') {
-            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            c = getc(arq); //lê primeiro caractere da próxima linha
-        }
-        //procurar seção
-        if (c == '[') {
-            //ignora espaços iniciais
-            do c = getc(arq); while (c == ' ');
-            //ler nome
-            for (i_aux = 0; c != EOF && c != 0x0A && c != ' ' && c != ']'; c = getc(arq)) {
-                if (section_name != NULL) {
-                    section_name[i_aux++] = c;
-                }
-            }
-            if (section_name != NULL) {
-                section_name[i_aux++] = '\0';
-            }
-            //ignora espaços finais, se houver
-            if (c != ']') {
-                do c = getc(arq); while (c == ' ');
-            }
-            //seção encontrada
-            if (c == ']') {
-                if (count == index) {
-                    return INI_OK;
-                }
-                count++; //contar seções
-                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+    char *str;
+    long n, start, end = 0;
+    //read file
+    n = readFileToString(file, &str);
+    if (n > 0) {
+        //search section
+        while (findNextSection(str, end, &start, &end)) {
+            if (index == count) {
+                copyStr(str, start, end, section_name);
+                ret = INI_OK;
+                break;
+            } else {
+                count++;
             }
         }
+        free(str);
     }
-    fclose(arq);
-    //retorno
-    section_name[0] = '\0';
-    return INI_ERROR;
+    return ret;
 }
 
 ini_status_t ini_read_key_name(char* file, char* section, int index, char *key_name) {
-    FILE *arq;
-    int sec_flag = 0;
-    int i_aux, len;
-    arq = fopen(file, "r");
-    if (arq == NULL) return INI_FILE_NOT_FOUND;
-    //zerar contagem
+    ini_status_t ret;
     int count = 0;
-    //varrer caracteres do arquivo
-    for (char c = getc(arq); c != EOF; c = getc(arq)) {
-        //ignorar comentários
-        while (c == ';') {
-            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            c = getc(arq); //lê primeiro caractere da próxima linha
-        }
-        //procurar seção
-        if (c == '[') {
-            if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
-            do c = getc(arq); while (c == ' '); //ignora espaços
-            for (i_aux = 0, len = strlen(section); c != EOF && i_aux < len;) {//lê o nome da seção
-                if (c != section[i_aux++]) {
-                    for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-                    break;
+    char *str;
+    long n, start, end = 0;
+    //read file
+    n = readFileToString(file, &str);
+    if (n > 0) {
+        //search section
+        ret = INI_SEC_NOT_FOUND;
+        while (findNextSection(str, end, &start, &end)) {
+            if (matchStr(str, start, end, section)) {
+                //search key
+                ret = INI_KEY_NOT_FOUND;
+                while (findNextKey(str, end, &start, &end)) {
+                    if (index == count) {
+                        copyStr(str, start, end, key_name);
+                        ret = INI_OK;
+                        break;
+                    } else {
+                        count++;
+                    }
                 }
-                do c = getc(arq); while (c == ' '); //ignora espaços
-            }
-            //seção encontrada
-            if (c == ']') {
-                sec_flag = 1; //flag de seção encontrada
-                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+                break;
             }
         }
-        //procurar chave
-        if (sec_flag) {
-            //ignora espaços iniciais
-            while (c == ' ' || c == 0x0A) c = getc(arq);
-            //se for a próxima seção
-            if (c == '[') break;
-            //zerar ponteiro de nome da chave
-            i_aux = 0;
-            //ler nome da chave
-            for (; c != ' ' && c != '=' && c != 0x0A && c != EOF; c = getc(arq)) {
-                if (key_name != NULL) {
-                    key_name[i_aux++] = c;
-                }
-            }
-            if (key_name != NULL) {
-                key_name[i_aux++] = '\0';
-            }
-            //incrementar contagem de chave
-            if (count == index) {
-                return INI_OK;
-            }
-            count++;
-            //ignora resto da linha
-            while (c != 0x0A && c != EOF) c = getc(arq);
-        }
+        free(str);
     }
-    fclose(arq);
-    key_name[0] = '\0';
-    //retorno
-    return INI_ERROR;
+    return ret;
 }
 
 ini_status_t ini_read_value(char* file, char* section, char* key, char* value) {
-    FILE *arq;
-    int sec_flag = 0;
-    int key_flag = 0;
-    int i_aux, i_result = 0, len;
-    arq = fopen(file, "r");
-    if (arq == NULL) return INI_FILE_NOT_FOUND;
-    //varrer caracteres do arquivo
-    for (char c = getc(arq); c != EOF; c = getc(arq)) {
-        //ignorar comentários
-        while (c == ';') {
-            for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-            c = getc(arq); //lê primeiro caractere da próxima linha
-        }
-        //procurar seção
-        if (c == '[') {
-            if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
-            do c = getc(arq); while (c == ' '); //ignora espaços
-            for (i_aux = 0, len = strlen(section); c != EOF && i_aux < len;) {//lê o nome da seção
-                if (c != section[i_aux++]) {
-                    for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-                    break;
+    ini_status_t ret;
+    char *str;
+    long n, start, end = 0;
+    //read file
+    n = readFileToString(file, &str);
+    if (n > 0) {
+        //search section
+        ret = INI_SEC_NOT_FOUND;
+        while (findNextSection(str, end, &start, &end)) {
+            if (matchStr(str, start, end, section)) {
+                //search key
+                ret = INI_KEY_NOT_FOUND;
+                while (findNextKey(str, end, &start, &end)) {
+                    if (matchStr(str, start, end, key)) {
+                        //read value
+                        ret = INI_ERROR;
+                        if (findNextValue(str, end, &start, &end)) {
+                            ret = INI_OK;
+                            if (value != NULL) {
+                                copyStr(str, start, end, value);
+                            }
+                        }
+                        break;
+                    }
                 }
-                do c = getc(arq); while (c == ' '); //ignora espaços
-            }
-            //seção encontrada
-            if (c == ']') {
-                sec_flag = 1; //flag de seção encontrada
-                for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
+                break;
             }
         }
-        //procurar chave
-        if (sec_flag) {
-            for (i_aux = 0, len = strlen(key); c != EOF && i_aux < len;) {//lê o nome da chave
-                if (c != key[i_aux++]) {
-                    for (; c != EOF && c != 0x0A; c = getc(arq)); //ignorar resto da linha
-                    break;
-                }
-                do c = getc(arq); while (c == ' '); //ignora espaços
-            }
-            //chave encontrada
-            if (c == '=') {
-                key_flag = 1; //flag de chave encontrada
-                do c = getc(arq); while (c == ' '); //ignora espaços
-                for (i_result = 0; c != EOF && c != 0x0A && c != ';';) { //ler resto da linha até encontrar comentário
-                    value[i_result++] = c;
-                    //do c = getc(arq); while (c == ' '); //ignora espaços
-                    c = getc(arq);
-                }
-            }
-        }
-        if (key_flag) break;
+        free(str);
+    } else {
+        ret = INI_FILE_NOT_FOUND;
     }
-    fclose(arq);
-    //saida
-    value[i_result] = '\0';
-    //retorno
-    if (key_flag && sec_flag) return INI_OK;
-    else if (sec_flag) return INI_SEC_FOUND;
-    else if (key_flag) return INI_ERROR;
-    else return INI_NOTHING_FOUND;
+    return ret;
 }
 
 ini_status_t ini_write_value(char* file, char* section, char* key, char* value) {
-    FILE *arq;
-    int flag, sec_flag = 0, key_flag = 0;
-    int n, pos = 0, pos_value = 0, i_aux, len;
-    char c, *data;
-    char aux[64];
-    //avaliar
-    flag = ini_read_value(file, section, key, aux);
-    if (flag == INI_FILE_NOT_FOUND) {
-        arq = fopen(file, "w");
-        if (arq == NULL) return INI_ERROR;
-        fclose(arq);
-        flag = INI_NOTHING_FOUND;
-    }
-    switch (flag) {
-        case INI_NOTHING_FOUND:
-            //contar caracteres
-            arq = fopen(file, "r");
-            for (n = 0, c = getc(arq); c != EOF; n++, c = getc(arq));
-            fclose(arq);
-            //gravar chave nova ao final do arquivo
-            arq = fopen(file, "a");
-            if (n > 0) fprintf(arq, "\n\n"); //chave
-            fprintf(arq, "[%s]\n", section);
-            fprintf(arq, "%s = %s", key, value);
-            fclose(arq);
+    ini_status_t ret;
+    FILE *fp;
+    char *str;
+    long n, start, end;
+    //evaluate
+    ret = ini_read_value(file, section, key, NULL);
+    n = readFileToString(file, &str);
+    //find insertion point
+    switch (ret) {
+        case INI_FILE_NOT_FOUND:
+            start = end = 0;
             break;
-
-        case INI_SEC_FOUND:
-            //contar caracteres
-            arq = fopen(file, "r");
-            for (n = 0, c = getc(arq); c != EOF; n++, c = getc(arq));
-            fclose(arq);
-            //ler arquivo num vetor
-            data = (char*) malloc(n);
-            arq = fopen(file, "r");
-            for (int i = 0; i < n; i++) data[i] = getc(arq);
-            fclose(arq);
-            //encontrar posição de inserção
-            pos = 0;
-            for (c = data[pos++]; pos < n; c = data[pos++]) {
-                //ignorar comentários
-                while (c == ';') {
-                    for (; pos < n && c != 0x0A; c = data[pos++]); //ignorar resto da linha
-                    c = data[pos++]; //lê primeiro caractere da próxima linha
-                }
-                //procurar seção
-                if (c == '[') {
-                    if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
-                    do c = data[pos++]; while (c == ' '); //ignora espaços
-                    for (i_aux = 0, len = strlen(section); pos < n && i_aux < len;) {//lê o nome da seção
-                        if (c != section[i_aux++]) {
-                            for (; pos < n && c != 0x0A; c = data[pos++]); //ignorar resto da linha
-                            break;
-                        }
-                        do c = data[pos++]; while (c == ' '); //ignora espaços
-                    }
-                    //seção encontrada
-                    if (c == ']') {
-                        sec_flag = 1; //flag de seção encontrada
-                        for (; pos < n && c != 0x0A; c = data[pos++]); //ignorar resto da linha
-                    }
-                }
-            }
-            if (pos != n) {
-                pos--;
-                do pos--; while (data[pos] == ' ' || data[pos] == 0x0A);
-                pos++;
-            }
-            //gravar arquivo
-            arq = fopen(file, "w");
-            for (int i = 0; i < pos; i++) fprintf(arq, "%c", data[i]); //antes
-            if (pos > 0) fprintf(arq, "\n"); //chave
-            fprintf(arq, "%s = %s", key, value); //chave
-            if (pos < n) fprintf(arq, "\n"); //chave
-            for (int i = pos; i < n; i++) fprintf(arq, "%c", data[i]); //depois
-            fclose(arq);
-            //liberar memória
-            free(data);
+        case INI_SEC_NOT_FOUND:
+            //end of file
+            start = end = n - 1;
             break;
-
+        case INI_KEY_NOT_FOUND:
+            //find section
+            end = 0;
+            do {
+                findNextSection(str, end, &start, &end);
+            } while (!matchStr(str, start, end, section));
+            //find last key
+            long last;
+            while (findNextKey(str, end, &start, &end)) {
+                last = end;
+            }
+            findNextValue(str, last, &start, &end);
+            start = end;
+            break;
         case INI_OK:
-            //contar caracteres
-            arq = fopen(file, "r");
-            for (n = 0, c = getc(arq); c != EOF; n++, c = getc(arq));
-            fclose(arq);
-            //ler arquivo num vetor
-            data = (char*) malloc(n);
-            arq = fopen(file, "r");
-            for (int i = 0; i < n; i++) data[i] = getc(arq);
-            fclose(arq);
-            //encontrar posição de inserção
-            pos = 0;
-            for (c = data[pos++]; pos < n; c = data[pos++]) {
-                //ignorar comentários
-                while (c == ';') {
-                    for (; pos < n && c != 0x0A; c = data[pos++]); //ignorar resto da linha
-                    c = data[pos++]; //lê primeiro caractere da próxima linha
-                }
-                //procurar seção
-                if (c == '[') {
-                    if (sec_flag) break; //termina busca se chegar a próxima seção sem achar a chave
-                    do c = data[pos++]; while (c == ' '); //ignora espaços
-                    for (i_aux = 0, len = strlen(section); pos < n && i_aux < len;) {//lê o nome da seção
-                        if (c != section[i_aux++]) {
-                            for (; pos < n && c != 0x0A; c = data[pos++]); //ignorar resto da linha
-                            break;
-                        }
-                        do c = data[pos++]; while (c == ' '); //ignora espaços
-                    }
-                    //seção encontrada
-                    if (c == ']') {
-                        sec_flag = 1; //flag de seção encontrada
-                        for (; pos < n && c != 0x0A; c = data[pos++]); //ignorar resto da linha
-                    }
-                }
-                //procurar chave
-                if (sec_flag) {
-                    for (i_aux = 0, len = strlen(key); pos < n && i_aux < len;) {//lê o nome da chave
-                        if (c != key[i_aux++]) {
-                            for (; pos < n && c != 0x0A; c = data[pos++]); //ignorar resto da linha
-                            break;
-                        }
-                        do c = data[pos++]; while (c == ' '); //ignora espaços
-                    }
-                    //chave encontrada
-                    if (c == '=') {
-                        key_flag = 1; //flag de chave encontrada
-                    }
-                }
-                if (key_flag) break;
-            }
-            pos_value = pos;
-            for (; pos < n && c != 0x0A && c != ';';) c = data[pos++]; //ignorar até o final da linha ou até encontrar comentário
-            if (pos < n) pos--;
-            //gravar arquivo
-            arq = fopen(file, "w");
-            for (int i = 0; i < pos_value; i++) fprintf(arq, "%c", data[i]); //antes
-            fprintf(arq, " %s", value); //chave
-            if (data[pos] == ';') fprintf(arq, " "); //chave
-            for (int i = pos; i < n; i++) fprintf(arq, "%c", data[i]); //depois
-            fclose(arq);
-            //liberar memória
-            free(data);
-            break;
-
-        default:
-            return INI_ERROR;
+            //find section
+            end = 0;
+            do {
+                findNextSection(str, end, &start, &end);
+            } while (!matchStr(str, start, end, section));
+            //find key
+            do {
+                findNextKey(str, end, &start, &end);
+            } while (!matchStr(str, start, end, key));
+            //find value
+            findNextValue(str, end, &start, &end);
             break;
     }
-    return INI_OK;
+    //write file
+    fp = fopen(file, "wb");
+    if (fp == NULL) {
+        ret = INI_ERROR;
+    } else {
+        //previous content
+        writeStringToFile(&fp, str, 0, start);
+        //new content
+        switch (ret) {
+            case INI_FILE_NOT_FOUND:
+            case INI_SEC_NOT_FOUND:
+                if (n > 1) {
+                    writeCharToFile(&fp, CHAR_END_LINE);
+                    writeCharToFile(&fp, CHAR_END_LINE);
+                }
+                writeCharToFile(&fp, CHAR_SEC_OPEN);
+                writeStringToFile(&fp, section, 0, strlen(section));
+                writeCharToFile(&fp, CHAR_SEC_CLOSE);
+                writeCharToFile(&fp, CHAR_END_LINE);
+                writeStringToFile(&fp, key, 0, strlen(key));
+                writeCharToFile(&fp, ' ');
+                writeCharToFile(&fp, CHAR_SET_VALUE);
+                break;
+            case INI_KEY_NOT_FOUND:
+                writeCharToFile(&fp, CHAR_END_LINE);
+                writeStringToFile(&fp, key, 0, strlen(key));
+                writeCharToFile(&fp, ' ');
+                writeCharToFile(&fp, CHAR_SET_VALUE);
+                break;
+            case INI_OK:
+                break;
+        }
+        writeCharToFile(&fp, ' ');
+        writeStringToFile(&fp, value, 0, strlen(value));
+        //following content
+        writeStringToFile(&fp, str, end, n - 1);
+        //close file
+        fclose(fp);
+        ret = INI_OK;
+    }
+    //free memory
+    if (str != NULL) {
+        free(str);
+    }
+    return ret;
 }

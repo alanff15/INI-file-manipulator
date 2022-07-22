@@ -95,6 +95,10 @@ int matchStr(char *str, long start, long end, char *compStr) {
 }
 
 void copyStr(char *str, long start, long end, char *dstStr) {
+    //ignore white spaces
+    while (str[start] == ' ') start++;
+    while (str[end - 1] == ' ') end--;
+    //copy string
     for (long i = 0, j = start; j < end; j++) {
         dstStr[i++] = str[j];
         dstStr[i] = '\0';
